@@ -1,4 +1,4 @@
-using System.IO.Ports;
+﻿using System.IO.Ports;
 
 namespace ConDmsLockerCmd;
 
@@ -28,6 +28,14 @@ public static class LockerCommands
         }
     }
 
+    /// <summary>
+    /// Check สถานะล็อค
+    /// Return: true = ล็อคอยู่ (Closed), false = เปิดอยู่ (Open)
+    ///
+    /// NOTE: ล็อคตัวนี้ feedback กลับขั้วจาก spec:
+    ///   0x11 = Locked (ปิดอยู่)    ← confirmed จากการทดสอบจริง
+    ///   0x00 = Unlocked (เปิดอยู่) ← confirmed จากการทดสอบจริง
+    /// </summary>
     public static bool CmdCheckLocked(byte boardAddr, byte lockAddr)
     {
         lock (_lock)
@@ -40,8 +48,52 @@ public static class LockerCommands
             if (response == null || response.Length < 4)
                 throw new IOException("No response from board.");
 
-            return response[3] == 0x00;
+            // 0x11 = Locked, 0x00 = Unlocked (confirmed by hardware test)
+            return response[3] == 0x11;
         }
+    }
+
+    /// <summary>
+    /// Check สถานะล็อคแบบ raw — คืนค่า response[3] โดยตรง
+    /// 0x11 = Locked, 0x00 = Unlocked
+    /// </summary>
+    public static byte CmdCheckLockedRaw(byte boardAddr, byte lockAddr)
+    {
+        lock (_lock)
+        {
+            if (_ctrl == null)
+                throw new InvalidOperationException("Port not connected.");
+
+            byte[]? response = _ctrl.CheckSingle(boardAddr, lockAddr);
+
+            if (response == null || response.Length < 4)
+                throw new IOException("No response from board.");
+
+            return response[3];
+        }
+    }
+
+    /// <summary>
+    /// ดึง raw bytes ทั้งหมดจาก CheckSingle — ใช้สำหรับ debug
+    /// </summary>
+    public static byte[]? ReadRaw(byte boardAddr, byte lockAddr)
+    {
+        lock (_lock)
+        {
+            if (_ctrl == null) return null;
+            return _ctrl.CheckSingle(boardAddr, lockAddr);
+        }
+    }
+
+    /// <summary>
+    /// Debug: แสดงผล raw bytes เป็น hex string
+    /// </summary>
+    public static string ReadRawHex(byte boardAddr, byte lockAddr)
+    {
+        byte[]? raw = ReadRaw(boardAddr, lockAddr);
+        if (raw == null || raw.Length == 0)
+            return "(no response)";
+        return string.Join(" ", raw.Select(b => $"{b:X2}"));
     }
 
     public static string CmdUnlock(byte boardAddr, byte lockAddr)

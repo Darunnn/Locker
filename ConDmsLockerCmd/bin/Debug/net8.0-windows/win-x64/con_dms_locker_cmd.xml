@@ -4,6 +4,32 @@
         <name>con_dms_locker_cmd</name>
     </assembly>
     <members>
+        <member name="M:ConDmsLockerCmd.LockerCommands.CmdCheckLocked(System.Byte,System.Byte)">
+             <summary>
+             Check สถานะล็อค
+             Return: true = ล็อคอยู่ (Closed), false = เปิดอยู่ (Open)
+            
+             NOTE: ล็อคตัวนี้ feedback กลับขั้วจาก spec:
+               0x11 = Locked (ปิดอยู่)    ← confirmed จากการทดสอบจริง
+               0x00 = Unlocked (เปิดอยู่) ← confirmed จากการทดสอบจริง
+             </summary>
+        </member>
+        <member name="M:ConDmsLockerCmd.LockerCommands.CmdCheckLockedRaw(System.Byte,System.Byte)">
+            <summary>
+            Check สถานะล็อคแบบ raw — คืนค่า response[3] โดยตรง
+            0x11 = Locked, 0x00 = Unlocked
+            </summary>
+        </member>
+        <member name="M:ConDmsLockerCmd.LockerCommands.ReadRaw(System.Byte,System.Byte)">
+            <summary>
+            ดึง raw bytes ทั้งหมดจาก CheckSingle — ใช้สำหรับ debug
+            </summary>
+        </member>
+        <member name="M:ConDmsLockerCmd.LockerCommands.ReadRawHex(System.Byte,System.Byte)">
+            <summary>
+            Debug: แสดงผล raw bytes เป็น hex string
+            </summary>
+        </member>
         <member name="T:ConDmsLockerCmd.LockerConfig">
             <summary>
             โหลดค่าจาก locker_config.ini
@@ -31,15 +57,9 @@
                Read all       : 80 [board] 00 33 [BCC]
                Unlock multi   : 90 [board] [S1][S2][S3][S4][S5][S6][S7] [BCC]
             
-             Read All response format (from spec):
-               80 [board] [S1][S2][S3][S4][S5][S6][S7] 33 [BCC]  → 11 bytes
-               S1 = ch 1-8, S2 = ch 9-16, S3 = ch 17-24,
-               S4 = ch 25-32, S5 = ch 33-40, S6 = ch 41-48,
-               S7 = ch 49-50 (only bits 0-1 used)
-            
-             NOTE on Read All status bits (no feedback wiring):
-               When feedback lines (pins 6/7) are NOT connected, board returns 0xFF by default.
-               bit=0 → Open (relay triggered), bit=1 → Closed (inverted)
+             NOTE: Board may prepend garbage bytes before the real response.
+               Real response always starts with the command head byte (0x80 or 0x8A).
+               ParseResponse() strips any leading garbage before the expected header.
              </summary>
         </member>
     </members>

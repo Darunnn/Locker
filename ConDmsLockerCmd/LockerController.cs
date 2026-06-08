@@ -12,22 +12,15 @@ namespace ConDmsLockerCmd;
 ///   Read all       : 80 [board] 00 33 [BCC]
 ///   Unlock multi   : 90 [board] [S1][S2][S3][S4][S5][S6][S7] [BCC]
 ///
-/// Read All response format (from spec):
-///   80 [board] [S1][S2][S3][S4][S5][S6][S7] 33 [BCC]  → 11 bytes
-///   S1 = ch 1-8, S2 = ch 9-16, S3 = ch 17-24,
-///   S4 = ch 25-32, S5 = ch 33-40, S6 = ch 41-48,
-///   S7 = ch 49-50 (only bits 0-1 used)
-///
-/// NOTE on Read All status bits (no feedback wiring):
-///   When feedback lines (pins 6/7) are NOT connected, board returns 0xFF by default.
-///   bit=0 → Open (relay triggered), bit=1 → Closed (inverted)
+/// NOTE: Board may prepend garbage bytes before the real response.
+///   Real response always starts with the command head byte (0x80 or 0x8A).
+///   ParseResponse() strips any leading garbage before the expected header.
 /// </summary>
 internal sealed class LockerController : IDisposable
 {
     private readonly SerialPort _port;
     private readonly int _timeoutMs;
 
-    // Max lock address per spec: 0x32 = 50
     public const byte MaxLockAddr = 0x32;
 
     public LockerController(string portName)
@@ -54,42 +47,67 @@ internal sealed class LockerController : IDisposable
     }
 
     // ----------------------------------------------------------
+    // Strip leading garbage bytes — find real response by header
+    //
+    // Board observed to prepend N garbage bytes (e.g. FA FD 99 99)
+    // before the actual response. Real response always starts with
+    // the expected header byte (0x80 for status/check, 0x8A for unlock).
+    //
+    // Strategy: scan forward until we find expectedHeader at position i
+    //           where remaining bytes (buf.Length - i) >= minLen.
+    // ----------------------------------------------------------
+    private static byte[]? ParseResponse(byte[]? buf, byte expectedHeader, int minLen)
+    {
+        if (buf == null || buf.Length == 0) return null;
+
+        for (int i = 0; i <= buf.Length - minLen; i++)
+        {
+            if (buf[i] == expectedHeader)
+            {
+                // Found header at position i — slice from here
+                byte[] result = new byte[buf.Length - i];
+                Array.Copy(buf, i, result, 0, result.Length);
+                return result;
+            }
+        }
+
+        return null; // header not found
+    }
+
+    // ----------------------------------------------------------
     // Unlock single channel
     // Send:    8A [board] [lock] 11 [BCC]
     // Reply:   8A [board] [lock] 00=Locked / 11=Unlocked [BCC]
-    // lock: 0x01–0x32 (channel 1–50)
     // ----------------------------------------------------------
     public byte[]? UnlockSingle(byte boardAddr, byte lockAddr)
     {
         byte[] payload = { 0x8A, boardAddr, lockAddr, 0x11 };
-        return SendAndReceive(AppendBCC(payload));
+        byte[]? raw = SendAndReceive(AppendBCC(payload));
+        return ParseResponse(raw, 0x8A, 5);
     }
 
     // ----------------------------------------------------------
     // Check door status (single channel)
     // Send:    80 [board] [lock] 33 [BCC]
     // Reply:   80 [board] [lock] 00=Closed / 11=Open [BCC]
-    // lock: 0x01–0x32 (channel 1–50)
     // ----------------------------------------------------------
     public byte[]? CheckSingle(byte boardAddr, byte lockAddr)
     {
         byte[] payload = { 0x80, boardAddr, lockAddr, 0x33 };
-        return SendAndReceive(AppendBCC(payload));
+        byte[]? raw = SendAndReceive(AppendBCC(payload));
+        return ParseResponse(raw, 0x80, 5);
     }
 
     // ----------------------------------------------------------
     // Read all 50 channel statuses on one board
     // Send:    80 [board] 00 33 [BCC]
     // Reply:   80 [board] [S1][S2][S3][S4][S5][S6][S7] 33 [BCC]  → 11 bytes
-    //   S1 = ch 1-8   S2 = ch 9-16  S3 = ch 17-24
-    //   S4 = ch 25-32 S5 = ch 33-40 S6 = ch 41-48
-    //   S7 = ch 49-50 (bits 0-1 only)
-    // Without feedback wiring: bit=0 → Open, bit=1 → Closed
     // ----------------------------------------------------------
     public byte[]? ReadAllStatus(byte boardAddr)
     {
         byte[] payload = { 0x80, boardAddr, 0x00, 0x33 };
-        return SendAndReceive(AppendBCC(payload));
+        byte[]? raw = SendAndReceive(AppendBCC(payload));
+        return ParseResponse(raw, 0x80, 11);
     }
 
     // ----------------------------------------------------------
@@ -100,14 +118,12 @@ internal sealed class LockerController : IDisposable
                                                   byte s4, byte s5, byte s6, byte s7)
     {
         byte[] payload = { 0x90, boardAddr, s1, s2, s3, s4, s5, s6, s7 };
-        return SendAndReceive(AppendBCC(payload));
+        byte[]? raw = SendAndReceive(AppendBCC(payload));
+        return ParseResponse(raw, 0x90, 5);
     }
 
     // ----------------------------------------------------------
     // Convert channel list (1–50) → 7-byte bitmask tuple
-    //   ch 1-8   → s1   ch 9-16  → s2   ch 17-24 → s3
-    //   ch 25-32 → s4   ch 33-40 → s5   ch 41-48 → s6
-    //   ch 49-50 → s7
     // ----------------------------------------------------------
     public static (byte s1, byte s2, byte s3, byte s4, byte s5, byte s6, byte s7)
         ChannelsToBitmask(int[] channels)
@@ -128,38 +144,26 @@ internal sealed class LockerController : IDisposable
 
     // ----------------------------------------------------------
     // Parse ReadAllStatus response → list of OPEN channel numbers
-    // Response: 80 [board] [S1..S7] 33 [BCC]  → 11 bytes
-    //
-    // Without feedback wiring: bit=0 → Open (board returns 0xFF default)
+    // Response after stripping garbage: 80 [board] S1..S7 33 [BCC] = 11 bytes
+    // bit=0 → Open, bit=1 → Closed (with feedback wiring)
     // ----------------------------------------------------------
     public static List<int> ParseAllStatus(byte[] response)
     {
         var open = new List<int>();
-        // Minimum 11 bytes: 80 [board] S1 S2 S3 S4 S5 S6 S7 33 [BCC]
         if (response == null || response.Length < 11) return open;
 
         byte[] s = new byte[7];
         for (int b = 0; b < 7; b++)
-            s[b] = response[2 + b];  // S1–S7 at response[2]–response[8]
+            s[b] = response[2 + b];
 
-        // ch 1–48: full 8 bits each byte
         for (int byteIdx = 0; byteIdx < 6; byteIdx++)
-        {
             for (int bit = 0; bit < 8; bit++)
-            {
-                int ch = byteIdx * 8 + bit + 1;
-                // bit=0 → Open (inverted: no feedback wiring)
                 if ((s[byteIdx] >> bit & 1) == 0)
-                    open.Add(ch);
-            }
-        }
-        // ch 49–50: only bits 0-1 of s7
+                    open.Add(byteIdx * 8 + bit + 1);
+
         for (int bit = 0; bit < 2; bit++)
-        {
-            int ch = 49 + bit;
             if ((s[6] >> bit & 1) == 0)
-                open.Add(ch);
-        }
+                open.Add(49 + bit);
 
         return open;
     }

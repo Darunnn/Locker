@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("con_dms_locker_cmd")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+e71a0bda193a35d8891fe9309a266aef5cb6ee40")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+39489672ebec828fe84b6ec72f8ecb60548def28")]
 [assembly: System.Reflection.AssemblyProductAttribute("con_dms_locker_cmd")]
 [assembly: System.Reflection.AssemblyTitleAttribute("con_dms_locker_cmd")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
