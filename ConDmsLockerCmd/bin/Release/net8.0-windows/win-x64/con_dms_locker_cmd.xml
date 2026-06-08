@@ -14,6 +14,9 @@
         <member name="P:ConDmsLockerCmd.LockerConfig.Mode">
             <summary>pharmacy | delivery</summary>
         </member>
+        <member name="P:ConDmsLockerCmd.LockerConfig.MaxChannels">
+            <summary>จำนวน channel ต่อ board สูงสุด 50 ตาม spec (lock addr 0x01–0x32)</summary>
+        </member>
         <member name="M:ConDmsLockerCmd.LockerConfig.ReadValue(System.String,System.String)">
             <summary>Quick single-key reader (single pass)</summary>
         </member>
@@ -23,10 +26,20 @@
              Protocol: 9600 baud 8N1, BCC = XOR of all payload bytes.
             
              Commands:
-               Unlock single  : 8A [board] [lock] 11 [BCC]
-               Check single   : 80 [board] [lock] 33 [BCC]
+               Unlock single  : 8A [board] [lock] 11 [BCC]          lock = 0x01–0x32 (1–50)
+               Check single   : 80 [board] [lock] 33 [BCC]          lock = 0x01–0x32 (1–50)
                Read all       : 80 [board] 00 33 [BCC]
-               Unlock multi   : 90 [board] [s1] [s2] [s3] [BCC]
+               Unlock multi   : 90 [board] [S1][S2][S3][S4][S5][S6][S7] [BCC]
+            
+             Read All response format (from spec):
+               80 [board] [S1][S2][S3][S4][S5][S6][S7] 33 [BCC]  → 11 bytes
+               S1 = ch 1-8, S2 = ch 9-16, S3 = ch 17-24,
+               S4 = ch 25-32, S5 = ch 33-40, S6 = ch 41-48,
+               S7 = ch 49-50 (only bits 0-1 used)
+            
+             NOTE on Read All status bits (no feedback wiring):
+               When feedback lines (pins 6/7) are NOT connected, board returns 0xFF by default.
+               bit=0 → Open (relay triggered), bit=1 → Closed (inverted)
              </summary>
         </member>
     </members>
