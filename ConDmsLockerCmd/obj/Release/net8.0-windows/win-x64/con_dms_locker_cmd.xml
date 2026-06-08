@@ -4,35 +4,6 @@
         <name>con_dms_locker_cmd</name>
     </assembly>
     <members>
-        <member name="T:ConDmsLockerCmd.LockerCommands">
-            <summary>
-            Static facade exported for P/Invoke from WPF frontend.
-            All methods are thread-safe via internal locking.
-            </summary>
-        </member>
-        <member name="M:ConDmsLockerCmd.LockerCommands.CmdConnectPortNative(System.IntPtr)">
-            <summary>
-            Open RS-485 serial port.
-            </summary>
-            <param name="portName">e.g. "COM3"</param>
-            <returns>true = connected, false = failed</returns>
-        </member>
-        <member name="M:ConDmsLockerCmd.LockerCommands.CmdCheckLockedNative(System.Byte,System.Byte)">
-            <summary>
-            Check if a locker channel is locked (door closed).
-            </summary>
-            <param name="boardAddr">Board address 0x01–0x20</param>
-            <param name="lockAddr">Channel 0x01–0x18</param>
-            <returns>true = locked/closed, false = unlocked/open</returns>
-        </member>
-        <member name="M:ConDmsLockerCmd.LockerCommands.CmdUnlockNative(System.Byte,System.Byte)">
-            <summary>
-            Send unlock command to a locker channel.
-            </summary>
-            <param name="boardAddr">Board address 0x01–0x20</param>
-            <param name="lockAddr">Channel 0x01–0x18</param>
-            <returns>"ok" on success, "ex-error: &lt;message&gt;" on failure</returns>
-        </member>
         <member name="T:ConDmsLockerCmd.LockerConfig">
             <summary>
             โหลดค่าจาก locker_config.ini

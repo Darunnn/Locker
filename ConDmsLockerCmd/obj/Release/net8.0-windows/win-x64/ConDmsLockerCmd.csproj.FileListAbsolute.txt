@@ -12,3 +12,4 @@ C:\Users\darun\source\repos\LockerDll\ConDmsLockerCmd\obj\Release\net8.0-windows
 C:\Users\darun\source\repos\LockerDll\ConDmsLockerCmd\obj\Release\net8.0-windows\win-x64\con_dms_locker_cmd.xml
 C:\Users\darun\source\repos\LockerDll\ConDmsLockerCmd\obj\Release\net8.0-windows\win-x64\con_dms_locker_cmd.pdb
 C:\Users\darun\source\repos\LockerDll\ConDmsLockerCmd\obj\Release\net8.0-windows\win-x64\ref\con_dms_locker_cmd.dll
+C:\Users\darun\source\repos\LockerDll\ConDmsLockerCmd\obj\Release\net8.0-windows\win-x64\ConDmsLockerCmd.sourcelink.json
