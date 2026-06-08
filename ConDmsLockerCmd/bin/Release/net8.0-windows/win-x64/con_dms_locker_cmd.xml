@@ -1,0 +1,62 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>con_dms_locker_cmd</name>
+    </assembly>
+    <members>
+        <member name="T:ConDmsLockerCmd.LockerCommands">
+            <summary>
+            Static facade exported for P/Invoke from WPF frontend.
+            All methods are thread-safe via internal locking.
+            </summary>
+        </member>
+        <member name="M:ConDmsLockerCmd.LockerCommands.CmdConnectPortNative(System.IntPtr)">
+            <summary>
+            Open RS-485 serial port.
+            </summary>
+            <param name="portName">e.g. "COM3"</param>
+            <returns>true = connected, false = failed</returns>
+        </member>
+        <member name="M:ConDmsLockerCmd.LockerCommands.CmdCheckLockedNative(System.Byte,System.Byte)">
+            <summary>
+            Check if a locker channel is locked (door closed).
+            </summary>
+            <param name="boardAddr">Board address 0x01–0x20</param>
+            <param name="lockAddr">Channel 0x01–0x18</param>
+            <returns>true = locked/closed, false = unlocked/open</returns>
+        </member>
+        <member name="M:ConDmsLockerCmd.LockerCommands.CmdUnlockNative(System.Byte,System.Byte)">
+            <summary>
+            Send unlock command to a locker channel.
+            </summary>
+            <param name="boardAddr">Board address 0x01–0x20</param>
+            <param name="lockAddr">Channel 0x01–0x18</param>
+            <returns>"ok" on success, "ex-error: &lt;message&gt;" on failure</returns>
+        </member>
+        <member name="T:ConDmsLockerCmd.LockerConfig">
+            <summary>
+            โหลดค่าจาก locker_config.ini
+            อ่าน [App] Mode= เพื่อรู้ว่าเครื่องนี้เป็น Pharmacy หรือ Delivery
+            แล้วโหลด section ที่ตรงกัน ([Pharmacy] หรือ [Delivery])
+            </summary>
+        </member>
+        <member name="P:ConDmsLockerCmd.LockerConfig.Mode">
+            <summary>pharmacy | delivery</summary>
+        </member>
+        <member name="M:ConDmsLockerCmd.LockerConfig.ReadValue(System.String,System.String)">
+            <summary>Quick single-key reader (single pass)</summary>
+        </member>
+        <member name="T:ConDmsLockerCmd.LockerController">
+             <summary>
+             Low-level RS-485 locker controller.
+             Protocol: 9600 baud 8N1, BCC = XOR of all payload bytes.
+            
+             Commands:
+               Unlock single  : 8A [board] [lock] 11 [BCC]
+               Check single   : 80 [board] [lock] 33 [BCC]
+               Read all       : 80 [board] 00 33 [BCC]
+               Unlock multi   : 90 [board] [s1] [s2] [s3] [BCC]
+             </summary>
+        </member>
+    </members>
+</doc>
