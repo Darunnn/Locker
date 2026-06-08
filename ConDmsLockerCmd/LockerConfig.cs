@@ -16,23 +16,24 @@ public sealed class LockerConfig
     // [App]
     // ----------------------------------------------------------
     /// <summary>pharmacy | delivery</summary>
-    public AppMode Mode     { get; private set; } = AppMode.Pharmacy;
-    public string AppTitle  { get; private set; } = "ระบบ Locker ยา IPD";
+    public AppMode Mode { get; private set; } = AppMode.Pharmacy;
+    public string AppTitle { get; private set; } = "ระบบ Locker ยา IPD";
 
     // ----------------------------------------------------------
     // [Pharmacy] / [Delivery]  — โหลดตาม Mode
     // ----------------------------------------------------------
-    public string Port       { get; private set; } = "COM3";
-    public int    BaudRate   { get; private set; } = 9600;
-    public int    TimeoutMs  { get; private set; } = 600;
-    public byte   BoardAddr  { get; private set; } = 0x01;
-    public int    MaxChannels{ get; private set; } = 24;
+    public string Port { get; private set; } = "COM3";
+    public int BaudRate { get; private set; } = 9600;
+    public int TimeoutMs { get; private set; } = 600;
+    public byte BoardAddr { get; private set; } = 0x01;
+    /// <summary>จำนวน channel ต่อ board สูงสุด 50 ตาม spec (lock addr 0x01–0x32)</summary>
+    public int MaxChannels { get; private set; } = 50;
 
     // ----------------------------------------------------------
     // [Locker]  — shared
     // ----------------------------------------------------------
     public bool PreventBothSidesOpen { get; private set; } = true;
-    public int  AutoRelockDelayMs    { get; private set; } = 0;
+    public int AutoRelockDelayMs { get; private set; } = 0;
 
     // ----------------------------------------------------------
     // Meta
@@ -57,11 +58,9 @@ public sealed class LockerConfig
     {
         if (!File.Exists(ConfigPath)) return;
 
-        // Pass 1: อ่าน [App] ก่อนเพื่อรู้ Mode
-        Mode     = ReadAppMode();
+        Mode = ReadAppMode();
         AppTitle = ReadAppTitle();
 
-        // Pass 2: อ่าน section ตาม Mode + [Locker]
         string targetSection = Mode == AppMode.Pharmacy ? "pharmacy" : "delivery";
 
         var lines = File.ReadAllLines(ConfigPath);
@@ -127,17 +126,17 @@ public sealed class LockerConfig
 
     private void ApplySerial(string key, string val)
     {
-        if (key == "port")        Port        = val;
-        if (key == "baudrate")    BaudRate    = ParseInt(val, 9600);
-        if (key == "timeoutms")   TimeoutMs   = ParseInt(val, 600);
-        if (key == "boardaddr")   BoardAddr   = (byte)ParseInt(val, 1);
-        if (key == "maxchannels") MaxChannels = ParseInt(val, 24);
+        if (key == "port") Port = val;
+        if (key == "baudrate") BaudRate = ParseInt(val, 9600);
+        if (key == "timeoutms") TimeoutMs = ParseInt(val, 600);
+        if (key == "boardaddr") BoardAddr = (byte)ParseInt(val, 1);
+        if (key == "maxchannels") MaxChannels = Math.Clamp(ParseInt(val, 50), 1, 50);
     }
 
     private void ApplyLocker(string key, string val)
     {
         if (key == "preventbothsidesopen") PreventBothSidesOpen = ParseBool(val, true);
-        if (key == "autorelockdelayms")    AutoRelockDelayMs    = ParseInt(val, 0);
+        if (key == "autorelockdelayms") AutoRelockDelayMs = ParseInt(val, 0);
     }
 
     private static string StripComment(string v)
@@ -146,10 +145,10 @@ public sealed class LockerConfig
         return i >= 0 ? v[..i].Trim() : v;
     }
 
-    private static int  ParseInt (string v, int  def) => int.TryParse(v, out int r) ? r : def;
+    private static int ParseInt(string v, int def) => int.TryParse(v, out int r) ? r : def;
     private static bool ParseBool(string v, bool def) =>
         v.ToLower() is "true" or "1" or "yes" ? true :
-        v.ToLower() is "false" or "0" or "no"  ? false : def;
+        v.ToLower() is "false" or "0" or "no" ? false : def;
 }
 
 public enum AppMode { Pharmacy, Delivery }
