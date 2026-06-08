@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("con_dms_locker_cmd")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+56b5f57eee0b8528c95940583f7bee297ed4a6d6")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+7f62ac252e4ea15aa1d0bddd879974116d434046")]
 [assembly: System.Reflection.AssemblyProductAttribute("con_dms_locker_cmd")]
 [assembly: System.Reflection.AssemblyTitleAttribute("con_dms_locker_cmd")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
