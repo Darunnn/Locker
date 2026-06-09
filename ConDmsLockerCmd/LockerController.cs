@@ -183,14 +183,18 @@ internal sealed class LockerController : IDisposable
         for (int b = 0; b < 7; b++)
             s[b] = response[2 + b];
 
-        // CH 1–50 (board ใช้ MSB first — bit7=CH1, bit6=CH2, ..., bit0=CH8)
         for (int ch = 1; ch <= 50; ch++)
         {
             int byteIdx = (ch - 1) / 8;
             int bit = (ch - 1) % 8;
-            int reversedBit = 7 - bit; // ← MSB first
-            if ((s[byteIdx] >> reversedBit & 1) == 0)
-                open.Add(ch);
+
+            bool closed;
+            if (ch >= 49) // S7 = LSB first
+                closed = (s[byteIdx] >> bit & 1) == 1;
+            else           // S1–S6 = MSB first
+                closed = (s[byteIdx] >> (7 - bit) & 1) == 1;
+
+            if (closed == false) open.Add(ch);
         }
 
         return open;
