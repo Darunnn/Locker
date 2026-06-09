@@ -29,12 +29,11 @@ public static class LockerCommands
     }
 
     /// <summary>
-    /// Check สถานะล็อค
+    /// Check สถานะล็อคช่องเดียว
     /// Return: true = ล็อคอยู่ (Closed), false = เปิดอยู่ (Open)
     ///
-    /// NOTE: ล็อคตัวนี้ feedback กลับขั้วจาก spec:
-    ///   0x11 = Locked (ปิดอยู่)    ← confirmed จากการทดสอบจริง
-    ///   0x00 = Unlocked (เปิดอยู่) ← confirmed จากการทดสอบจริง
+    /// response[3] = 0x11 → Locked  ← confirmed จากการทดสอบจริง
+    /// response[3] = 0x00 → Unlocked ← confirmed จากการทดสอบจริง
     /// </summary>
     public static bool CmdCheckLocked(byte boardAddr, byte lockAddr)
     {
@@ -48,8 +47,7 @@ public static class LockerCommands
             if (response == null || response.Length < 4)
                 throw new IOException("No response from board.");
 
-            // 0x11 = Locked, 0x00 = Unlocked (confirmed by hardware test)
-            return response[3] == 0x11;
+            return response[3] == 0x11; // 0x11 = Locked
         }
     }
 
@@ -96,6 +94,11 @@ public static class LockerCommands
         return string.Join(" ", raw.Select(b => $"{b:X2}"));
     }
 
+    /// <summary>
+    /// Unlock ช่องเดียว
+    /// Return: "ok" = สำเร็จ, "ex-error: ..." = ล้มเหลว
+    /// response[3] = 0x11 หลัง unlock = board ตอบรับ = success
+    /// </summary>
     public static string CmdUnlock(byte boardAddr, byte lockAddr)
     {
         lock (_lock)
@@ -110,8 +113,9 @@ public static class LockerCommands
                 if (response == null || response.Length < 4)
                     return "ex-error: No response from board.";
 
+                // board ส่ง 0x11 กลับมา = acknowledge unlock สำเร็จ
                 return response[3] == 0x11 ? "ok"
-                    : "ex-error: Board acknowledged but lock did not open.";
+                    : $"ex-error: Unexpected response byte 0x{response[3]:X2}";
             }
             catch (Exception ex)
             {
@@ -120,6 +124,11 @@ public static class LockerCommands
         }
     }
 
+    /// <summary>
+    /// Read All Status (CMD: 80 [board] 00 33 BCC)
+    /// คืน raw response 11 bytes:
+    ///   [0]=0x80 [1]=board [2–8]=S1–S7 [9]=0x33 [10]=BCC
+    /// </summary>
     public static byte[]? ReadAllStatus(byte boardAddr)
     {
         lock (_lock)
@@ -127,6 +136,73 @@ public static class LockerCommands
             if (_ctrl == null) return null;
             return _ctrl.ReadAllStatus(boardAddr);
         }
+    }
+
+    /// <summary>
+    /// Unlock หลายช่องพร้อมกัน (CMD: 90 [board] S1–S7 BCC)
+    ///
+    /// แต่ละ bit ใน S1–S7 ตรงกับ channel:
+    ///   S1 bit0=CH1, bit1=CH2, ..., bit7=CH8
+    ///   S2 bit0=CH9, ..., bit7=CH16
+    ///   S3 bit0=CH17, ..., bit7=CH24
+    ///   S4 bit0=CH25, ..., bit7=CH32
+    ///   S5 bit0=CH33, ..., bit7=CH40
+    ///   S6 bit0=CH41, ..., bit7=CH48
+    ///   S7 bit0=CH49, bit1=CH50 (ใช้แค่ 2 bits)
+    ///
+    /// Unlock ALL 50 channels: s1=0xFF s2=0xFF s3=0xFF s4=0xFF s5=0xFF s6=0xFF s7=0x03
+    /// Return: "ok" หรือ "ex-error: ..."
+    /// </summary>
+    public static string CmdUnlockMultiple(byte boardAddr,
+                                            byte s1, byte s2, byte s3,
+                                            byte s4, byte s5, byte s6, byte s7)
+    {
+        lock (_lock)
+        {
+            try
+            {
+                if (_ctrl == null)
+                    return "ex-error: Port not connected.";
+
+                byte[]? response = _ctrl.UnlockMultiple(boardAddr, s1, s2, s3, s4, s5, s6, s7);
+
+                if (response == null || response.Length < 2)
+                    return "ex-error: No response from board.";
+
+                return "ok";
+            }
+            catch (Exception ex)
+            {
+                return $"ex-error: {ex.Message}";
+            }
+        }
+    }
+
+    /// <summary>
+    /// Helper: Unlock ทุกช่องในครั้งเดียว (CH 1–MaxChannels)
+    /// ใช้ UnlockMultiple ด้วย bitmask เต็ม
+    /// Return: "ok" หรือ "ex-error: ..."
+    /// </summary>
+    public static string CmdUnlockAll(byte boardAddr)
+    {
+        int max = LockerConfig.Instance.MaxChannels;
+
+        // สร้าง bitmask จาก CH 1..max
+        int[] channels = Enumerable.Range(1, max).ToArray();
+        var (s1, s2, s3, s4, s5, s6, s7) = LockerController.ChannelsToBitmask(channels);
+
+        return CmdUnlockMultiple(boardAddr, s1, s2, s3, s4, s5, s6, s7);
+    }
+
+    /// <summary>
+    /// Helper: Unlock หลายช่องโดยระบุรายชื่อ channel number (1-based)
+    /// ตัวอย่าง: CmdUnlockChannels(0x01, new[]{ 1, 3, 5 })
+    /// Return: "ok" หรือ "ex-error: ..."
+    /// </summary>
+    public static string CmdUnlockChannels(byte boardAddr, int[] channelNumbers)
+    {
+        var (s1, s2, s3, s4, s5, s6, s7) = LockerController.ChannelsToBitmask(channelNumbers);
+        return CmdUnlockMultiple(boardAddr, s1, s2, s3, s4, s5, s6, s7);
     }
 
     public static void Disconnect()

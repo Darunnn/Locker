@@ -6,12 +6,11 @@
     <members>
         <member name="M:ConDmsLockerCmd.LockerCommands.CmdCheckLocked(System.Byte,System.Byte)">
              <summary>
-             Check สถานะล็อค
+             Check สถานะล็อคช่องเดียว
              Return: true = ล็อคอยู่ (Closed), false = เปิดอยู่ (Open)
             
-             NOTE: ล็อคตัวนี้ feedback กลับขั้วจาก spec:
-               0x11 = Locked (ปิดอยู่)    ← confirmed จากการทดสอบจริง
-               0x00 = Unlocked (เปิดอยู่) ← confirmed จากการทดสอบจริง
+             response[3] = 0x11 → Locked  ← confirmed จากการทดสอบจริง
+             response[3] = 0x00 → Unlocked ← confirmed จากการทดสอบจริง
              </summary>
         </member>
         <member name="M:ConDmsLockerCmd.LockerCommands.CmdCheckLockedRaw(System.Byte,System.Byte)">
@@ -28,6 +27,51 @@
         <member name="M:ConDmsLockerCmd.LockerCommands.ReadRawHex(System.Byte,System.Byte)">
             <summary>
             Debug: แสดงผล raw bytes เป็น hex string
+            </summary>
+        </member>
+        <member name="M:ConDmsLockerCmd.LockerCommands.CmdUnlock(System.Byte,System.Byte)">
+            <summary>
+            Unlock ช่องเดียว
+            Return: "ok" = สำเร็จ, "ex-error: ..." = ล้มเหลว
+            response[3] = 0x11 หลัง unlock = board ตอบรับ = success
+            </summary>
+        </member>
+        <member name="M:ConDmsLockerCmd.LockerCommands.ReadAllStatus(System.Byte)">
+            <summary>
+            Read All Status (CMD: 80 [board] 00 33 BCC)
+            คืน raw response 11 bytes:
+              [0]=0x80 [1]=board [2–8]=S1–S7 [9]=0x33 [10]=BCC
+            </summary>
+        </member>
+        <member name="M:ConDmsLockerCmd.LockerCommands.CmdUnlockMultiple(System.Byte,System.Byte,System.Byte,System.Byte,System.Byte,System.Byte,System.Byte,System.Byte)">
+             <summary>
+             Unlock หลายช่องพร้อมกัน (CMD: 90 [board] S1–S7 BCC)
+            
+             แต่ละ bit ใน S1–S7 ตรงกับ channel:
+               S1 bit0=CH1, bit1=CH2, ..., bit7=CH8
+               S2 bit0=CH9, ..., bit7=CH16
+               S3 bit0=CH17, ..., bit7=CH24
+               S4 bit0=CH25, ..., bit7=CH32
+               S5 bit0=CH33, ..., bit7=CH40
+               S6 bit0=CH41, ..., bit7=CH48
+               S7 bit0=CH49, bit1=CH50 (ใช้แค่ 2 bits)
+            
+             Unlock ALL 50 channels: s1=0xFF s2=0xFF s3=0xFF s4=0xFF s5=0xFF s6=0xFF s7=0x03
+             Return: "ok" หรือ "ex-error: ..."
+             </summary>
+        </member>
+        <member name="M:ConDmsLockerCmd.LockerCommands.CmdUnlockAll(System.Byte)">
+            <summary>
+            Helper: Unlock ทุกช่องในครั้งเดียว (CH 1–MaxChannels)
+            ใช้ UnlockMultiple ด้วย bitmask เต็ม
+            Return: "ok" หรือ "ex-error: ..."
+            </summary>
+        </member>
+        <member name="M:ConDmsLockerCmd.LockerCommands.CmdUnlockChannels(System.Byte,System.Int32[])">
+            <summary>
+            Helper: Unlock หลายช่องโดยระบุรายชื่อ channel number (1-based)
+            ตัวอย่าง: CmdUnlockChannels(0x01, new[]{ 1, 3, 5 })
+            Return: "ok" หรือ "ex-error: ..."
             </summary>
         </member>
         <member name="T:ConDmsLockerCmd.LockerConfig">
@@ -52,13 +96,22 @@
              Protocol: 9600 baud 8N1, BCC = XOR of all payload bytes.
             
              Commands:
-               Unlock single  : 8A [board] [lock] 11 [BCC]          lock = 0x01–0x32 (1–50)
-               Check single   : 80 [board] [lock] 33 [BCC]          lock = 0x01–0x32 (1–50)
-               Read all       : 80 [board] 00 33 [BCC]
-               Unlock multi   : 90 [board] [S1][S2][S3][S4][S5][S6][S7] [BCC]
+               Unlock single  : 8A [board] [lock] 11 [BCC]                    lock = 0x01–0x32
+               Check single   : 80 [board] [lock] 33 [BCC]                    lock = 0x01–0x32
+               Read all       : 80 [board] 00 33 [BCC]                        lock = 0x00 (ALL)
+               Unlock multi   : 90 [board] S1 S2 S3 S4 S5 S6 S7 [BCC]
+            
+             Read all send  : 80 01 00 33 B2  (board=0x01)
+             Read all reply : 80 [board] S1 S2 S3 S4 S5 S6 S7 33 [BCC]  = 11 bytes
+               bit = 0 → channel OPEN (unlocked)
+               bit = 1 → channel CLOSED (locked)
+            
+             Single channel status (response[3]):
+               0x11 = Locked  (ปิด)   ← confirmed จากการทดสอบจริง
+               0x00 = Unlocked (เปิด) ← confirmed จากการทดสอบจริง
             
              NOTE: Board may prepend garbage bytes before the real response.
-               Real response always starts with the command head byte (0x80 or 0x8A).
+               Real response always starts with the command head byte (0x80 or 0x8A or 0x90).
                ParseResponse() strips any leading garbage before the expected header.
              </summary>
         </member>
