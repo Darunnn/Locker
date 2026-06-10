@@ -178,7 +178,6 @@ internal sealed class LockerController : IDisposable
         var open = new List<int>();
         if (response == null || response.Length < 11) return open;
 
-        // S1–S7 อยู่ที่ index 2–8
         byte[] s = new byte[7];
         for (int b = 0; b < 7; b++)
             s[b] = response[2 + b];
@@ -188,13 +187,10 @@ internal sealed class LockerController : IDisposable
             int byteIdx = (ch - 1) / 8;
             int bit = (ch - 1) % 8;
 
-            bool closed;
-            if (ch >= 49) // S7 = LSB first
-                closed = (s[byteIdx] >> bit & 1) == 1;
-            else           // S1–S6 = MSB first
-                closed = (s[byteIdx] >> (7 - bit) & 1) == 1;
+            // LSB first ทุก byte (CH26 = byteIdx=3, bit=1 → 0x02 >> 1 & 1 = 1 = closed)
+            bool closed = (s[byteIdx] >> bit & 1) == 1;
 
-            if (closed == false) open.Add(ch);
+            if (!closed) open.Add(ch);
         }
 
         return open;
