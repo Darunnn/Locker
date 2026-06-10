@@ -1,1 +1,9 @@
+# Visual Studio
 .vs/
+
+# Build output
+**/bin/
+**/obj/
+
+# Config ที่มีค่า sensitive / เฉพาะเครื่อง
+locker_config.ini
