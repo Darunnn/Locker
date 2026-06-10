@@ -12,7 +12,8 @@ public static class LockerCommands
     // ----------------------------------------------------------
 
     /// <summary>
-    /// Throw ถ้า channel ไม่ได้อยู่ใน config ของเครื่องนี้
+    /// Throw ถ้า channel ไม่ได้อยู่ใน ChannelMap ของเครื่องนี้
+    /// (Channels derive มาจาก ChannelMap อัตโนมัติ)
     /// </summary>
     private static void AssertOwnedChannel(byte lockAddr)
     {
@@ -20,12 +21,11 @@ public static class LockerCommands
             throw new InvalidOperationException(
                 $"CH {lockAddr} ไม่ใช่ channel ของเครื่องนี้ " +
                 $"(Mode={LockerConfig.Instance.Mode}, " +
-                $"Channels={string.Join(",", LockerConfig.Instance.Channels)})");
+                $"Labels={string.Join(",", LockerConfig.Instance.ChannelMap.Select(x => $"{x.Label}={x.Channel}"))})");
     }
 
     /// <summary>
     /// AND bitmask S1–S7 กับ mask ของ channel ที่เครื่องนี้ดูแลเท่านั้น
-    /// ป้องกัน caller ส่ง 0xFF เข้ามาแล้วไปแตะฝั่งอื่น
     /// </summary>
     private static (byte, byte, byte, byte, byte, byte, byte) MaskToOwnedChannels(
         byte s1, byte s2, byte s3, byte s4, byte s5, byte s6, byte s7)
@@ -43,7 +43,7 @@ public static class LockerCommands
     public static bool CmdConnectPort(string portName)
     {
         if (string.IsNullOrWhiteSpace(portName))
-            portName = LockerConfig.Instance.Port;
+            throw new ArgumentException("ต้องระบุ port name");
 
         lock (_lock)
         {
@@ -121,10 +121,27 @@ public static class LockerCommands
     /// </summary>
     public static string ReadRawHex(byte boardAddr, byte lockAddr)
     {
-        byte[]? raw = ReadRaw(boardAddr, lockAddr); // AssertOwnedChannel อยู่ใน ReadRaw แล้ว
+        byte[]? raw = ReadRaw(boardAddr, lockAddr);
         if (raw == null || raw.Length == 0)
             return "(no response)";
         return string.Join(" ", raw.Select(b => $"{b:X2}"));
+    }
+
+    /// <summary>
+    /// Unlock ช่องเดียว โดยใช้ label — แปลง label → CH ก่อนส่ง
+    /// Return: "ok" = สำเร็จ, "ex-error: ..." = ล้มเหลว
+    /// </summary>
+    public static string CmdUnlockByLabel(byte boardAddr, string label)
+    {
+        try
+        {
+            int ch = LockerConfig.Instance.LabelToChannel(label);
+            return CmdUnlock(boardAddr, (byte)ch);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return $"ex-error: {ex.Message}";
+        }
     }
 
     /// <summary>
@@ -165,8 +182,7 @@ public static class LockerCommands
     }
 
     /// <summary>
-    /// Read All Status — คืน raw 11 bytes แต่กรองให้เห็นเฉพาะ CH ของเครื่องนี้
-    /// ผ่าน ParseAllStatusOwned() แทน ParseAllStatus()
+    /// Read All Status — คืน raw 11 bytes
     /// </summary>
     public static byte[]? ReadAllStatus(byte boardAddr)
     {
@@ -187,8 +203,6 @@ public static class LockerCommands
         if (response == null || response.Length < 11) return result;
 
         var owned = LockerConfig.Instance.Channels;
-
-        // ใช้ ParseAllStatus ของ LockerController แล้ว invert (มันคืน "open" list)
         var openChannels = LockerController.ParseAllStatus(response).ToHashSet();
 
         foreach (int ch in owned)
@@ -198,14 +212,30 @@ public static class LockerCommands
     }
 
     /// <summary>
+    /// Parse ReadAllStatus → แสดงผลเป็น label แทน CH number
+    /// คืน dict ของทุก label ที่เครื่องดูแล: true = Locked, false = Unlocked
+    /// </summary>
+    public static Dictionary<string, bool> ParseAllStatusByLabel(byte[] response)
+    {
+        var chStatus = ParseAllStatusOwned(response);
+        var result = new Dictionary<string, bool>();
+
+        foreach (var (label, ch) in LockerConfig.Instance.ChannelMap)
+        {
+            if (chStatus.TryGetValue(ch, out bool locked))
+                result[label] = locked;
+        }
+
+        return result;
+    }
+
+    /// <summary>
     /// Unlock หลายช่องพร้อมกัน — AND mask กับ CH ของเครื่องนี้ก่อนส่งเสมอ
-    /// Return: "ok" หรือ "ex-error: ..."
     /// </summary>
     public static string CmdUnlockMultiple(byte boardAddr,
                                             byte s1, byte s2, byte s3,
                                             byte s4, byte s5, byte s6, byte s7)
     {
-        // Guard: ตัด bit ที่ไม่ใช่ CH ของเครื่องนี้ออก
         (s1, s2, s3, s4, s5, s6, s7) =
             MaskToOwnedChannels(s1, s2, s3, s4, s5, s6, s7);
 
@@ -245,7 +275,6 @@ public static class LockerCommands
     /// </summary>
     public static string CmdUnlockChannels(byte boardAddr, int[] channelNumbers)
     {
-        // กรองก่อนแปลง bitmask
         var owned = LockerConfig.Instance.Channels.ToHashSet();
         int[] filtered = channelNumbers.Where(ch => owned.Contains(ch)).ToArray();
 
@@ -254,6 +283,24 @@ public static class LockerCommands
 
         var (s1, s2, s3, s4, s5, s6, s7) = LockerController.ChannelsToBitmask(filtered);
         return CmdUnlockMultiple(boardAddr, s1, s2, s3, s4, s5, s6, s7);
+    }
+
+    /// <summary>
+    /// Unlock หลายช่องโดยใช้ label — แปลง label → CH ก่อนส่ง
+    /// </summary>
+    public static string CmdUnlockLabels(byte boardAddr, string[] labels)
+    {
+        try
+        {
+            int[] channels = labels
+                .Select(l => LockerConfig.Instance.LabelToChannel(l))
+                .ToArray();
+            return CmdUnlockChannels(boardAddr, channels);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return $"ex-error: {ex.Message}";
+        }
     }
 
     public static void Disconnect()

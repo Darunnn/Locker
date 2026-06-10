@@ -6,6 +6,11 @@ namespace ConDmsLockerCmd;
 /// โหลดค่าจาก locker_config.ini
 /// อ่าน [App] Mode= เพื่อรู้ว่าเครื่องนี้เป็น Pharmacy หรือ Delivery
 /// แล้วโหลด section ที่ตรงกัน ([Pharmacy] หรือ [Delivery])
+///
+/// [ChannelMap] เป็นแหล่งข้อมูลเดียวสำหรับ channel:
+///   - Label = ชื่อที่แสดงบน UI (A, B, C ...)
+///   - CH    = หมายเลข channel จริงบน board (1-50)
+///   - Channels property derive มาจาก ChannelMap อัตโนมัติ
 /// </summary>
 public sealed class LockerConfig
 {
@@ -21,15 +26,24 @@ public sealed class LockerConfig
     // ----------------------------------------------------------
     // [Pharmacy] / [Delivery]  — โหลดตาม Mode
     // ----------------------------------------------------------
-    public string Port { get; private set; } = null!;
+    public string? Port { get; private set; }
     public int BaudRate { get; private set; }
     public int TimeoutMs { get; private set; }
     public byte BoardAddr { get; private set; }
 
+    // ----------------------------------------------------------
+    // [ChannelMap]  — แหล่งข้อมูลเดียวสำหรับ channel
+    // ----------------------------------------------------------
     /// <summary>
-    /// CH ที่เครื่องนี้ควบคุม อ่านจาก ini เท่านั้น
-    /// เช่น Pharmacy = [1..25], Delivery = [26..50]
-    /// รองรับ range (1-25), เดี่ยว (1,3,5) และผสม (1-10,12,15)
+    /// Label → CH mapping ตามลำดับใน ini
+    /// key   = label บน UI เช่น "A", "B"
+    /// value = CH number จริง เช่น 1, 3, 5
+    /// </summary>
+    public IReadOnlyList<(string Label, int Channel)> ChannelMap { get; private set; } = null!;
+
+    /// <summary>
+    /// Derive จาก ChannelMap — CH ทั้งหมดที่เครื่องนี้ควบคุม
+    /// ใช้แทน Channels= เดิมใน ini
     /// </summary>
     public IReadOnlyList<int> Channels { get; private set; } = null!;
 
@@ -69,6 +83,8 @@ public sealed class LockerConfig
 
         var serialValues = new Dictionary<string, string>();
         var lockerValues = new Dictionary<string, string>();
+        // ใช้ List of tuple เพื่อรักษาลำดับบรรทัดจาก ini
+        var mapEntries = new List<(string key, string value)>();
 
         string section = "";
         foreach (var raw in File.ReadAllLines(ConfigPath))
@@ -87,14 +103,18 @@ public sealed class LockerConfig
 
             if (section == targetSection) serialValues[key] = val;
             else if (section == "locker") lockerValues[key] = val;
+            else if (section == "channelmap") mapEntries.Add((key, val));
         }
 
-        // Serial — required ทุกตัว ถ้าหายหรือ parse ไม่ได้ → throw
-        Port = RequireKey(serialValues, "port", targetSection);
+        // Serial — required ทุกตัว
+        Port = serialValues.TryGetValue("port", out var p) ? p : null;
         BaudRate = ParseRequiredInt(serialValues, "baudrate", targetSection);
         TimeoutMs = ParseRequiredInt(serialValues, "timeoutms", targetSection);
         BoardAddr = (byte)ParseRequiredInt(serialValues, "boardaddr", targetSection);
-        Channels = ParseRequiredChannels(serialValues, "channels", targetSection);
+
+        // ChannelMap — required, derive Channels จากมัน
+        ChannelMap = ParseChannelMap(mapEntries);
+        Channels = ChannelMap.Select(x => x.Channel).ToList().AsReadOnly();
 
         // Locker — required ทุกตัว
         PreventBothSidesOpen = ParseRequiredBool(lockerValues, "preventbothsidesopen", "locker");
@@ -102,7 +122,71 @@ public sealed class LockerConfig
     }
 
     // ----------------------------------------------------------
-    // Helpers
+    // ChannelMap helpers
+    // ----------------------------------------------------------
+
+    /// <summary>แปลง label → CH, throw ถ้าไม่พบ</summary>
+    public int LabelToChannel(string label)
+    {
+        var entry = ChannelMap.FirstOrDefault(
+            x => x.Label.Equals(label, StringComparison.OrdinalIgnoreCase));
+
+        if (entry == default)
+            throw new InvalidOperationException(
+                $"ไม่พบ label '{label}' ใน [ChannelMap]");
+
+        return entry.Channel;
+    }
+
+    /// <summary>แปลง CH → label, คืน "CH{n}" ถ้าไม่มี map</summary>
+    public string ChannelToLabel(int ch)
+    {
+        var entry = ChannelMap.FirstOrDefault(x => x.Channel == ch);
+        return entry == default ? $"CH{ch}" : entry.Label;
+    }
+
+    // ----------------------------------------------------------
+    // Parse [ChannelMap]
+    // ----------------------------------------------------------
+    private static IReadOnlyList<(string Label, int Channel)> ParseChannelMap(
+        List<(string key, string value)> entries)
+    {
+        if (entries.Count == 0)
+            throw new InvalidOperationException(
+                "[ChannelMap] ไม่มี entry เลย — ต้องระบุอย่างน้อย 1 รายการ");
+
+        var result = new List<(string Label, int Channel)>();
+        var seenLabels = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var seenCh = new HashSet<int>();
+
+        foreach (var (rawLabel, rawVal) in entries)
+        {
+            string label = rawLabel.ToUpper();
+
+            if (!seenLabels.Add(label))
+                throw new InvalidOperationException(
+                    $"[ChannelMap] label '{label}' ซ้ำ");
+
+            if (!int.TryParse(rawVal, out int ch))
+                throw new InvalidOperationException(
+                    $"[ChannelMap] label '{label}' ค่า '{rawVal}' ไม่ใช่ตัวเลข");
+
+            if (ch < 1 || ch > 50)
+                throw new InvalidOperationException(
+                    $"[ChannelMap] label '{label}' → CH {ch} ต้องอยู่ใน 1-50");
+
+            if (!seenCh.Add(ch))
+                throw new InvalidOperationException(
+                    $"[ChannelMap] CH {ch} ซ้ำ");
+
+            result.Add((label, ch));
+        }
+
+        return result.AsReadOnly();
+    }
+
+    // ----------------------------------------------------------
+    // Private helpers
     // ----------------------------------------------------------
     private AppMode ReadAppMode()
     {
@@ -110,7 +194,6 @@ public sealed class LockerConfig
         return raw.Trim().ToLower() == "delivery" ? AppMode.Delivery : AppMode.Pharmacy;
     }
 
-    /// <summary>Single-key reader — throw ถ้าไม่พบ</summary>
     private string ReadRequiredValue(string targetSection, string targetKey)
     {
         string section = "";
@@ -154,53 +237,6 @@ public sealed class LockerConfig
         if (raw is "false" or "0" or "no") return false;
         throw new InvalidOperationException(
             $"[{section}] key '{key}' ค่า '{raw}' ไม่ใช่ true/false");
-    }
-
-    /// <summary>
-    /// Parse Channels= รองรับ:
-    ///   range   : 1-25
-    ///   เดี่ยว  : 1,3,5
-    ///   ผสม     : 1-10,12,15,20-25
-    /// ทุก CH ต้องอยู่ใน 1-50 และ from ต้องไม่เกิน to
-    /// </summary>
-    private static IReadOnlyList<int> ParseRequiredChannels(
-        Dictionary<string, string> d, string key, string section)
-    {
-        string raw = RequireKey(d, key, section);
-        var result = new List<int>();
-
-        foreach (var part in raw.Split(',', StringSplitOptions.RemoveEmptyEntries))
-        {
-            string p = part.Trim();
-            var dash = p.Split('-');
-
-            if (dash.Length == 2
-                && int.TryParse(dash[0].Trim(), out int from)
-                && int.TryParse(dash[1].Trim(), out int to))
-            {
-                if (from < 1 || to > 50 || from > to)
-                    throw new InvalidOperationException(
-                        $"[{section}] channels range '{p}' ไม่ถูกต้อง (ต้องอยู่ใน 1-50 และ from ≤ to)");
-                for (int i = from; i <= to; i++) result.Add(i);
-            }
-            else if (int.TryParse(p, out int single))
-            {
-                if (single < 1 || single > 50)
-                    throw new InvalidOperationException(
-                        $"[{section}] channel '{p}' ไม่ถูกต้อง (ต้องอยู่ใน 1-50)");
-                result.Add(single);
-            }
-            else
-            {
-                throw new InvalidOperationException(
-                    $"[{section}] channels ค่า '{p}' parse ไม่ได้");
-            }
-        }
-
-        if (result.Count == 0)
-            throw new InvalidOperationException($"[{section}] channels ว่างเปล่า");
-
-        return result.AsReadOnly();
     }
 
     private static string StripComment(string v)
