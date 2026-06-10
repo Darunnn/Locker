@@ -84,11 +84,24 @@
         <member name="P:ConDmsLockerCmd.LockerConfig.Mode">
             <summary>pharmacy | delivery</summary>
         </member>
-        <member name="P:ConDmsLockerCmd.LockerConfig.MaxChannels">
-            <summary>จำนวน channel ต่อ board สูงสุด 50 ตาม spec (lock addr 0x01–0x32)</summary>
+        <member name="P:ConDmsLockerCmd.LockerConfig.Channels">
+            <summary>
+            CH ที่เครื่องนี้ควบคุม อ่านจาก ini เท่านั้น
+            เช่น Pharmacy = [1..25], Delivery = [26..50]
+            รองรับ range (1-25), เดี่ยว (1,3,5) และผสม (1-10,12,15)
+            </summary>
         </member>
-        <member name="M:ConDmsLockerCmd.LockerConfig.ReadValue(System.String,System.String)">
-            <summary>Quick single-key reader (single pass)</summary>
+        <member name="M:ConDmsLockerCmd.LockerConfig.ReadRequiredValue(System.String,System.String)">
+            <summary>Single-key reader — throw ถ้าไม่พบ</summary>
+        </member>
+        <member name="M:ConDmsLockerCmd.LockerConfig.ParseRequiredChannels(System.Collections.Generic.Dictionary{System.String,System.String},System.String,System.String)">
+            <summary>
+            Parse Channels= รองรับ:
+              range   : 1-25
+              เดี่ยว  : 1,3,5
+              ผสม     : 1-10,12,15,20-25
+            ทุก CH ต้องอยู่ใน 1-50 และ from ต้องไม่เกิน to
+            </summary>
         </member>
         <member name="T:ConDmsLockerCmd.LockerController">
              <summary>

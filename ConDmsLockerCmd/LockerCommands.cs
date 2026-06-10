@@ -185,12 +185,8 @@ public static class LockerCommands
     /// </summary>
     public static string CmdUnlockAll(byte boardAddr)
     {
-        int max = LockerConfig.Instance.MaxChannels;
-
-        // สร้าง bitmask จาก CH 1..max
-        int[] channels = Enumerable.Range(1, max).ToArray();
+        int[] channels = LockerConfig.Instance.Channels.ToArray();
         var (s1, s2, s3, s4, s5, s6, s7) = LockerController.ChannelsToBitmask(channels);
-
         return CmdUnlockMultiple(boardAddr, s1, s2, s3, s4, s5, s6, s7);
     }
 
