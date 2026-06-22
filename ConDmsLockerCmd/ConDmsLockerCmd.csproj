@@ -3,6 +3,7 @@
 		<TargetFramework>net8.0-windows</TargetFramework>
 		<AssemblyName>con_dms_locker_cmd</AssemblyName>
 		<RootNamespace>ConDmsLockerCmd</RootNamespace>
+		<OutputType>Library</OutputType>
 		<Nullable>enable</Nullable>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Platforms>x64</Platforms>
@@ -13,7 +14,6 @@
 
 	<ItemGroup>
 		<PackageReference Include="System.IO.Ports" Version="8.0.0" />
-		
 	</ItemGroup>
 
 </Project>

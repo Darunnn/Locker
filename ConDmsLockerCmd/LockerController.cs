@@ -6,23 +6,32 @@ namespace ConDmsLockerCmd;
 /// Low-level RS-485 locker controller.
 /// Protocol: 9600 baud 8N1, BCC = XOR of all payload bytes.
 ///
-/// Commands:
-///   Unlock single  : 8A [board] [lock] 11 [BCC]                    lock = 0x01–0x32
-///   Check single   : 80 [board] [lock] 33 [BCC]                    lock = 0x01–0x32
-///   Read all       : 80 [board] 00 33 [BCC]                        lock = 0x00 (ALL)
-///   Unlock multi   : 90 [board] S1 S2 S3 S4 S5 S6 S7 [BCC]
+/// Commands (ตาม spec PDF):
+///   Unlock single  : 8A [board] [lock] 11 [BCC]       lock = 0x01–0x18 (CH1–24)
+///   Check single   : 80 [board] [lock] 33 [BCC]       lock = 0x01–0x18
+///   Read all       : 80 [board] 00 33 [BCC]           lock = 0x00 (ALL)
+///   Unlock multi   : 90 [board] S1 S2 S3 [BCC]        ← 3 bytes เท่านั้น! (CH1–24)
 ///
-/// Read all send  : 80 01 00 33 B2  (board=0x01)
-/// Read all reply : 80 [board] S1 S2 S3 S4 S5 S6 S7 33 [BCC]  = 11 bytes
-///   bit = 0 → channel OPEN (unlocked)
-///   bit = 1 → channel CLOSED (locked)
+/// Unlock single reply:
+///   8A [board] [lock] 00 [BCC] = Locked (ยังปิดอยู่)
+///   8A [board] [lock] 11 [BCC] = Unlocked (เปิดสำเร็จ)
 ///
-/// Single channel status (response[3]):
-///   0x11 = Locked  (ปิด)   ← confirmed จากการทดสอบจริง
-///   0x00 = Unlocked (เปิด) ← confirmed จากการทดสอบจริง
+/// Check single reply:
+///   80 [board] [lock] 00 [BCC] = Closed/Locked
+///   80 [board] [lock] 11 [BCC] = Open/Unlocked
+///
+/// Read all reply: 80 [board] S1 S2 S3 33 [BCC] = 7 bytes
+///   S1 = CH1–8, S2 = CH9–16, S3 = CH17–24
+///   bit = 1 → channel Closed (locked)  bit = 0 → Open (unlocked)
+///
+/// Unlock multi (0x90):
+///   Send : 90 [board] S1 S2 S3 [BCC]   = 6 bytes total
+///   S1   = CH1–8  (bit=1 → unlock นั้น)
+///   S2   = CH9–16
+///   S3   = CH17–24
+///   Example: unlock CH2, CH10, CH18 → S1=02 S2=02 S3=02 → send: 90 01 02 02 02 93
 ///
 /// NOTE: Board may prepend garbage bytes before the real response.
-///   Real response always starts with the command head byte (0x80 or 0x8A or 0x90).
 ///   ParseResponse() strips any leading garbage before the expected header.
 /// </summary>
 internal sealed class LockerController : IDisposable
@@ -30,7 +39,7 @@ internal sealed class LockerController : IDisposable
     private readonly SerialPort _port;
     private readonly int _timeoutMs;
 
-    public const byte MaxLockAddr = 0x32; // channel 1–50
+    public const byte MaxLockAddr = 0x18; // channel 1–24 ตาม spec
 
     public LockerController(string portName)
     {
@@ -57,10 +66,6 @@ internal sealed class LockerController : IDisposable
 
     // ----------------------------------------------------------
     // Strip leading garbage — หา header ที่ถูกต้องก่อน parse
-    //
-    // Board บางตัวส่ง garbage bytes นำหน้า response จริง
-    // e.g. FA FD 99 99 ก่อน 80 01 ...
-    // วิธี: scan จนเจอ expectedHeader ที่เหลือ >= minLen bytes
     // ----------------------------------------------------------
     private static byte[]? ParseResponse(byte[]? buf, byte expectedHeader, int minLen)
     {
@@ -76,14 +81,14 @@ internal sealed class LockerController : IDisposable
             }
         }
 
-        return null; // ไม่เจอ header
+        return null;
     }
 
     // ----------------------------------------------------------
     // Unlock single channel
-    //
     // Send  : 8A [board] [lock] 11 [BCC]
-    // Reply : 8A [board] [lock] 11 [BCC]   → response[3] = 0x11 = success
+    // Reply : 8A [board] [lock] 11 xx = Unlocked
+    //         8A [board] [lock] 00 xx = Locked (ยังปิด)
     // ----------------------------------------------------------
     public byte[]? UnlockSingle(byte boardAddr, byte lockAddr)
     {
@@ -94,11 +99,9 @@ internal sealed class LockerController : IDisposable
 
     // ----------------------------------------------------------
     // Check door status — single channel
-    //
-    // Send  : 80 [board] [lock] 33 [BCC]     lock = 0x01–0x32
-    // Reply : 80 [board] [lock] [status] [BCC]
-    //   response[3] = 0x11 → Locked (ปิด)
-    //   response[3] = 0x00 → Unlocked (เปิด)
+    // Send  : 80 [board] [lock] 33 [BCC]
+    // Reply : 80 [board] [lock] 00 xx = Closed/Locked
+    //         80 [board] [lock] 11 xx = Open/Unlocked
     // ----------------------------------------------------------
     public byte[]? CheckSingle(byte boardAddr, byte lockAddr)
     {
@@ -108,90 +111,73 @@ internal sealed class LockerController : IDisposable
     }
 
     // ----------------------------------------------------------
-    // Read all 50-channel status
-    //
+    // Read all status (CH1–24)
     // Send  : 80 [board] 00 33 [BCC]
-    //   e.g. board=0x01 → 80 01 00 33 B2
-    //
-    // Reply : 80 [board] S1 S2 S3 S4 S5 S6 S7 33 [BCC]  = 11 bytes
-    //   S1 = CH 1–8,  S2 = CH 9–16,  S3 = CH 17–24
-    //   S4 = CH 25–32, S5 = CH 33–40, S6 = CH 41–48
-    //   S7 = CH 49–50 (bit 0 = CH49, bit 1 = CH50)
-    //   bit = 0 → Open (เปิด)   bit = 1 → Closed (ปิด)
+    //   board=0x01 → 80 01 00 33 B2
+    // Reply : 80 [board] S1 S2 S3 33 [BCC]  = 7 bytes
+    //   S1=CH1–8, S2=CH9–16, S3=CH17–24
+    //   bit=1 → Closed, bit=0 → Open
     // ----------------------------------------------------------
     public byte[]? ReadAllStatus(byte boardAddr)
     {
-        // lock addr = 0x00 หมายถึง "read all" ตาม spec
         byte[] payload = { 0x80, boardAddr, 0x00, 0x33 };
         byte[]? raw = SendAndReceive(AppendBCC(payload));
-        return ParseResponse(raw, 0x80, 11);
+        return ParseResponse(raw, 0x80, 7); // 7 bytes: 80 board S1 S2 S3 33 BCC
     }
 
     // ----------------------------------------------------------
-    // Unlock multiple channels พร้อมกัน (bitmask S1–S7)
+    // Unlock multiple channels พร้อมกัน
+    // Send  : 90 [board] S1 S2 S3 [BCC]  = 6 bytes total  ← 3 status bytes เท่านั้น!
+    //   S1 = CH1–8,  bit=1 → unlock
+    //   S2 = CH9–16, bit=1 → unlock
+    //   S3 = CH17–24, bit=1 → unlock
     //
-    // Send  : 90 [board] S1 S2 S3 S4 S5 S6 S7 [BCC]  = 10 bytes
-    //   S1 = CH 1–8,  bit=1 → unlock channel นั้น
-    //   S7 = CH 49–50 (ใช้แค่ bit 0,1)
+    // Example จาก spec: unlock CH2/CH10/CH18
+    //   → 90 01 02 02 02 93
     //
-    // Unlock ALL 50: S1=0xFF S2=0xFF S3=0xFF S4=0xFF S5=0xFF S6=0xFF S7=0x03
-    // Unlock CH1 only: S1=0x01 S2–S7=0x00
+    // Board ไม่ส่ง response กลับสำหรับ command นี้ตาม spec
     // ----------------------------------------------------------
-    public byte[]? UnlockMultiple(byte boardAddr,
-                                   byte s1, byte s2, byte s3,
-                                   byte s4, byte s5, byte s6, byte s7)
+    public byte[]? UnlockMultiple(byte boardAddr, byte s1, byte s2, byte s3)
     {
-        byte[] payload = { 0x90, boardAddr, s1, s2, s3, s4, s5, s6, s7 };
+        byte[] payload = { 0x90, boardAddr, s1, s2, s3 };
         byte[]? raw = SendAndReceive(AppendBCC(payload));
-        return ParseResponse(raw, 0x90, 5);
+        return raw; // คืน raw ทั้งหมด (board อาจไม่ส่งกลับ)
     }
 
     // ----------------------------------------------------------
-    // Helper: แปลงรายชื่อ channel (1–50) → bitmask S1–S7
-    // ใช้กับ UnlockMultiple
+    // Helper: แปลง channel list (1–24) → bitmask S1–S3
+    // ตาม spec: S1=CH1–8, S2=CH9–16, S3=CH17–24
     // ----------------------------------------------------------
-    public static (byte s1, byte s2, byte s3, byte s4, byte s5, byte s6, byte s7)
-        ChannelsToBitmask(int[] channels)
+    public static (byte s1, byte s2, byte s3) ChannelsToBitmask(int[] channels)
     {
-        byte s1 = 0, s2 = 0, s3 = 0, s4 = 0, s5 = 0, s6 = 0, s7 = 0;
+        byte s1 = 0, s2 = 0, s3 = 0;
         foreach (int ch in channels)
         {
             if (ch >= 1 && ch <= 8) s1 |= (byte)(1 << (ch - 1));
             else if (ch >= 9 && ch <= 16) s2 |= (byte)(1 << (ch - 9));
             else if (ch >= 17 && ch <= 24) s3 |= (byte)(1 << (ch - 17));
-            else if (ch >= 25 && ch <= 32) s4 |= (byte)(1 << (ch - 25));
-            else if (ch >= 33 && ch <= 40) s5 |= (byte)(1 << (ch - 33));
-            else if (ch >= 41 && ch <= 48) s6 |= (byte)(1 << (ch - 41));
-            else if (ch >= 49 && ch <= 50) s7 |= (byte)(1 << (ch - 49));
         }
-        return (s1, s2, s3, s4, s5, s6, s7);
+        return (s1, s2, s3);
     }
 
     // ----------------------------------------------------------
     // Parse ReadAllStatus response → list ของ channel ที่ "เปิดอยู่"
-    // input: response หลัง strip garbage แล้ว (11 bytes)
-    //   index: 0=0x80, 1=board, 2–8=S1–S7, 9=0x33, 10=BCC
-    //   bit=0 → Open, bit=1 → Closed
+    // input: response หลัง strip garbage (7 bytes)
+    //   index: 0=0x80, 1=board, 2=S1, 3=S2, 4=S3, 5=0x33, 6=BCC
+    //   bit=1 → Closed, bit=0 → Open
     // ----------------------------------------------------------
     public static List<int> ParseAllStatus(byte[] response)
     {
         var open = new List<int>();
-        if (response == null || response.Length < 11) return open;
+        if (response == null || response.Length < 7) return open;
 
-        byte[] s = new byte[7];
-        for (int b = 0; b < 7; b++)
-            s[b] = response[2 + b];
+        byte s1 = response[2]; // CH1–8
+        byte s2 = response[3]; // CH9–16
+        byte s3 = response[4]; // CH17–24
 
-        for (int ch = 1; ch <= 50; ch++)
-        {
-            int byteIdx = (ch - 1) / 8;
-            int bit = (ch - 1) % 8;
-
-            // LSB first ทุก byte (CH26 = byteIdx=3, bit=1 → 0x02 >> 1 & 1 = 1 = closed)
-            bool closed = (s[byteIdx] >> bit & 1) == 1;
-
-            if (!closed) open.Add(ch);
-        }
+        for (int ch = 1; ch <= 8; ch++) if ((s1 >> (ch - 1) & 1) == 0) open.Add(ch);
+        for (int ch = 9; ch <= 16; ch++) if ((s2 >> (ch - 9) & 1) == 0) open.Add(ch);
+        for (int ch = 17; ch <= 24; ch++) if ((s3 >> (ch - 17) & 1) == 0) open.Add(ch);
 
         return open;
     }
